@@ -1,11 +1,13 @@
 (ns com.example.ui
   (:require
+    [clojure.string :as str]
     [com.example.model.account :as acct]
     [com.example.model.address :as address]
     [com.example.ui.login-dialog :refer [LoginForm]]
     [com.fulcrologic.fulcro.components :as comp :refer [defsc]]
-    #?(:clj  [com.fulcrologic.fulcro.dom-server :as dom :refer [div label input]]
-       :cljs [com.fulcrologic.fulcro.dom :as dom :refer [div label input]])
+    #?@(:clj  [[com.fulcrologic.fulcro.dom-server :as dom :refer [div label input]]]
+        :cljs [[goog.object :as gobj]
+               [com.fulcrologic.fulcro.dom :as dom :refer [div label input]]])
     [com.fulcrologic.fulcro.routing.dynamic-routing :refer [defrouter]]
     [com.fulcrologic.fulcro.mutations :as m]
     [com.fulcrologic.fulcro.dom.events :as evt]
@@ -78,62 +80,121 @@
   "Create a new type of input that can be derived from a string. `kw` is a fully-qualified keyword name for the new
   class, and model->string and string->model are functions that can do the conversions (and MUST tolerate nil as input).
   `model->string` MUST return a string (empty if invalid), and `string->model` can return nil if invalid.
+
+  `string-filter` is an optional (fn [string?] string?) that can be used to rewrite incoming strings (i.e. filter
+  things).
   "
-  [kw {:keys [model->string string->model]}]
-  (let [cls (fn [])]
+  [kw {:keys [model->string
+              string->model
+              string-filter]}]
+  (let [cls (fn [props]
+              #?(:cljs
+                 (cljs.core/this-as this
+                   (if-let [init-state (fn [this]
+                                         (let [{:keys [value]} (comp/props this)]
+                                           {:oldPropValue value
+                                            :on-change    (fn [evt]
+                                                            (log/info "change")
+                                                            (let [{:keys [value]} (comp/props this)
+                                                                  nsv (evt/target-value evt)
+                                                                  nv  (string->model nsv)
+                                                                  {:keys [onChange]} (comp/props this)]
+                                                              (comp/set-state! this {:stringValue  nsv
+                                                                                     :oldPropValue value
+                                                                                     :value        nv})
+                                                              (when (and onChange (not= value nv))
+                                                                (log/info "change")
+                                                                (onChange nv))))
+                                            :stringValue  (model->string value)}))]
+                     (set! (.-state this) (cljs.core/js-obj "fulcro$state" (init-state this (gobj/get props "fulcro$value"))))
+                     (set! (.-state this) (cljs.core/js-obj "fulcro$state" {})))
+                   nil)))]
     (comp/configure-component! cls kw
-      {:initLocalState (fn [this]
-                         (let [{:keys [value]} (comp/props this)]
-                           {:lastPropsValue value
-                            :stringValue    (model->string value)}))
-       :getDerivedStateFromProps
-                       (fn [latest-props state]
-                         (let [{:keys [value]} latest-props
-                               {:keys [oldPropValue stringValue]} state
-                               ignorePropValue?  (= oldPropValue value)
-                               stringValue       (if ignorePropValue?
-                                                   stringValue
-                                                   (model->string value))
-                               new-derived-state (merge state {:stringValue stringValue})]
-                           #js {"fulcro$state" new-derived-state}))
-       :render         (fn [this]
-                         (let [{:keys [value onChange onBlur] :as props} (comp/props this)
-                               {:keys [stringValue]} (comp/get-state this)]
-                           (dom/create-element "input" (clj->js
-                                                         (merge props
-                                                           (cond->
-                                                             {:value    stringValue
-                                                              :type     "text"
-                                                              :onChange (fn [evt]
-                                                                          (let [nsv (evt/target-value evt)
-                                                                                nv  (string->model nsv)]
-                                                                            (comp/set-state! this {:stringValue  nsv
-                                                                                                   :oldPropValue value
-                                                                                                   :value        nv})
-                                                                            (when (and onChange (not= value nv))
-                                                                              (onChange nv))))}
-                                                             onBlur (assoc :onBlur (fn [evt]
-                                                                                     (onBlur (-> evt evt/target-value string->model))))))))))})
+      {:getDerivedStateFromProps
+       (fn [latest-props state]
+         (let [{:keys [value]} latest-props
+               {:keys [oldPropValue stringValue]} state
+               ignorePropValue?  (= oldPropValue value)
+               stringValue       (cond-> (if ignorePropValue?
+                                           stringValue
+                                           (model->string value))
+                                   string-filter string-filter)
+               new-derived-state (merge state {:stringValue stringValue})]
+           #js {"fulcro$state" new-derived-state}))
+       :render
+       (fn [this]
+         #?(:cljs
+            (let [{:keys [value onBlur] :as props} (comp/props this)
+                  {:keys [stringValue on-change]} (comp/get-state this)]
+              (dom/create-element "input"
+                (clj->js
+                  (merge props
+                    (cond->
+                      {:value    stringValue
+                       :type     "text"
+                       :onChange on-change}
+                      onBlur (assoc :onBlur (fn [evt]
+                                              (onBlur (-> evt evt/target-value string->model)))))))))))})
     cls))
 
 (def ui-keyword-input (comp/factory (StringBufferedInput ::KeywordInput {:model->string #(str (some-> % name))
                                                                          :string->model #(some-> % keyword)})))
 
+(defn to-int [s]
+  #?(:cljs
+     (let [n (js/parseInt s)]
+       (when-not (js/isNaN n)
+         n))))
+
+(let [digits (into #{} (map str) (range 10))]
+  (defn just-digits [s]
+    (str/join
+      (filter digits (seq s)))))
+
+(def ui-int-input (comp/factory (StringBufferedInput ::IntInput {:model->string str
+                                                                 :string->model to-int
+                                                                 :string-filter just-digits})))
+
+
+(defn parse-int [x]
+  #?(:clj  (Integer/parseInt x)
+     :cljs (js/Number x)))
+
+#_(defn parse-local-time
+    "Parse the given time string and return a cljc.java-time.local-time."
+    [s]
+    (condp re-matches (some-> s (str/lower-case))
+      #"^\s*(\d{1,2})\s*(a|p|am|pm)?\s*$"
+      :>> (fn [[_ h ap]] (let [h (parse-int h)]
+                           (cljc.java-time.local-time/of
+                             (cond-> h
+                               (and (#{"a" "am"} ap) (= 12 h)) (- 12)
+                               (and (#{"p" "pm"} ap) (not= 12 h)) (+ 12))
+                             0)))
+      #"^\s*(\d{1,2}):(\d{1,2})\s*(a|p|am|pm)?\s*$"
+      :>> (fn [[_ h m ap]] (let [h (parse-int h)
+                                 m (parse-int m)]
+                             (cljc.java-time.local-time/of
+                               (cond-> h
+                                 (and (#{"a" "am"} ap) (= 12 h)) (- 12)
+                                 (and (#{"p" "pm"} ap) (not= 12 h)) (+ 12))
+                               m)))
+      #".*" nil))
+
 (defsc LandingPage [this {:keys [current]}]
   {:query         [:current]
    :ident         (fn [] [:component/id ::LandingPage])
-   :initial-state {:current :x}
+   :initial-state {:current 42}
    :route-segment ["landing-page"]}
   (dom/div :.ui.form
-    (dom/button :.ui.button {:onClick (fn [] (m/set-value! this :current :x))} "Set!")
+    (dom/button :.ui.button {:onClick (fn [] (m/set-value! this :current 99))} "Set!")
     (div :.ui.field
       (dom/label "Try ME!")
-      (log/info "Render page" current)
-      (ui-keyword-input {:value    current
-                         :onBlur   (fn [k] (log/info "blur" k))
-                         :onChange (fn [k]
-                                     (log/info "set" k)
-                                     (m/set-value! this :current k))}))))
+      (ui-int-input {:value    current
+                     :onBlur   (fn [k] (log/info "blur" k))
+                     :onChange (fn [k]
+                                 (log/info "set" k)
+                                 (m/set-value! this :current k))}))))
 
 ;; This will just be a normal router...but there can be many of them.
 (defrouter MainRouter [this props]

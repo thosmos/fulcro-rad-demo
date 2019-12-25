@@ -13,6 +13,7 @@
            http-kit                    {:mvn/version "2.3.0"}
            ring/ring-defaults          {:mvn/version "0.3.2"}
            ring/ring-core              {:mvn/version "1.7.1"}
+           cljc.java-time              {:mvn/version "0.1.4"}
 
            ;; Unified logging for server
            org.slf4j/log4j-over-slf4j  {:mvn/version "1.7.25"} ; auto sends log4j to slf4j

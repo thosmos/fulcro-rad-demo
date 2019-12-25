@@ -7,6 +7,8 @@
     #?(:clj  [com.fulcrologic.fulcro.dom-server :as dom :refer [div label input]]
        :cljs [com.fulcrologic.fulcro.dom :as dom :refer [div label input]])
     [com.fulcrologic.fulcro.routing.dynamic-routing :refer [defrouter]]
+    [com.fulcrologic.fulcro.mutations :as m]
+    [com.fulcrologic.fulcro.dom.events :as evt]
     [com.fulcrologic.rad :as rad]
     [com.fulcrologic.rad.attributes :as attr]
     [com.fulcrologic.rad.authorization :as auth]
@@ -71,12 +73,67 @@
    ::report/parameters       {:ui/show-inactive? :boolean}
    ::report/route            "accounts"})
 
-(defsc LandingPage [this props]
-  {:query         ['*]
+
+(defn StringBufferedInput
+  "Create a new type of input that can be derived from a string. `kw` is a fully-qualified keyword name for the new
+  class, and model->string and string->model are functions that can do the conversions (and MUST tolerate nil as input).
+  `model->string` MUST return a string (empty if invalid), and `string->model` can return nil if invalid.
+  "
+  [kw {:keys [model->string string->model]}]
+  (let [cls (fn [])]
+    (comp/configure-component! cls kw
+      {:initLocalState (fn [this]
+                         (let [{:keys [value]} (comp/props this)]
+                           {:lastPropsValue value
+                            :stringValue    (model->string value)}))
+       :getDerivedStateFromProps
+                       (fn [latest-props state]
+                         (let [{:keys [value]} latest-props
+                               {:keys [oldPropValue stringValue]} state
+                               ignorePropValue?  (= oldPropValue value)
+                               stringValue       (if ignorePropValue?
+                                                   stringValue
+                                                   (model->string value))
+                               new-derived-state (merge state {:stringValue stringValue})]
+                           #js {"fulcro$state" new-derived-state}))
+       :render         (fn [this]
+                         (let [{:keys [value onChange onBlur] :as props} (comp/props this)
+                               {:keys [stringValue]} (comp/get-state this)]
+                           (dom/create-element "input" (clj->js
+                                                         (merge props
+                                                           (cond->
+                                                             {:value    stringValue
+                                                              :type     "text"
+                                                              :onChange (fn [evt]
+                                                                          (let [nsv (evt/target-value evt)
+                                                                                nv  (string->model nsv)]
+                                                                            (comp/set-state! this {:stringValue  nsv
+                                                                                                   :oldPropValue value
+                                                                                                   :value        nv})
+                                                                            (when (and onChange (not= value nv))
+                                                                              (onChange nv))))}
+                                                             onBlur (assoc :onBlur (fn [evt]
+                                                                                     (onBlur (-> evt evt/target-value string->model))))))))))})
+    cls))
+
+(def ui-keyword-input (comp/factory (StringBufferedInput ::KeywordInput {:model->string #(str (some-> % name))
+                                                                         :string->model #(some-> % keyword)})))
+
+(defsc LandingPage [this {:keys [current]}]
+  {:query         [:current]
    :ident         (fn [] [:component/id ::LandingPage])
-   :initial-state {}
+   :initial-state {:current :x}
    :route-segment ["landing-page"]}
-  (dom/div "Hello World"))
+  (dom/div :.ui.form
+    (dom/button :.ui.button {:onClick (fn [] (m/set-value! this :current :x))} "Set!")
+    (div :.ui.field
+      (dom/label "Try ME!")
+      (log/info "Render page" current)
+      (ui-keyword-input {:value    current
+                         :onBlur   (fn [k] (log/info "blur" k))
+                         :onChange (fn [k]
+                                     (log/info "set" k)
+                                     (m/set-value! this :current k))}))))
 
 ;; This will just be a normal router...but there can be many of them.
 (defrouter MainRouter [this props]

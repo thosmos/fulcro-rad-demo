@@ -130,7 +130,6 @@
                   (merge props
                     (cond->
                       {:value    stringValue
-                       :type     "text"
                        :onChange on-change}
                       onBlur (assoc :onBlur (fn [evt]
                                               (onBlur (-> evt evt/target-value string->model)))))))))))})
@@ -196,6 +195,7 @@
     (div :.ui.field
       (dom/label "Try ME!")
       (ui-time-input {:value    current
+                      :type     "time"
                       :onBlur   (fn [k] (log/info "blur" k))
                       :onChange (fn [k]
                                   (log/info "set" k)

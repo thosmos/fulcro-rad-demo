@@ -3,6 +3,7 @@
     [clojure.string :as str]
     [com.example.model.account :as acct]
     [com.example.model.address :as address]
+    [cljc.java-time.local-time :as local-time]
     [com.example.ui.login-dialog :refer [LoginForm]]
     [com.fulcrologic.fulcro.components :as comp :refer [defsc]]
     #?@(:clj  [[com.fulcrologic.fulcro.dom-server :as dom :refer [div label input]]]
@@ -94,7 +95,6 @@
                                          (let [{:keys [value]} (comp/props this)]
                                            {:oldPropValue value
                                             :on-change    (fn [evt]
-                                                            (log/info "change")
                                                             (let [{:keys [value]} (comp/props this)
                                                                   nsv (evt/target-value evt)
                                                                   nv  (string->model nsv)
@@ -103,7 +103,6 @@
                                                                                      :oldPropValue value
                                                                                      :value        nv})
                                                               (when (and onChange (not= value nv))
-                                                                (log/info "change")
                                                                 (onChange nv))))
                                             :stringValue  (model->string value)}))]
                      (set! (.-state this) (cljs.core/js-obj "fulcro$state" (init-state this (gobj/get props "fulcro$value"))))
@@ -114,7 +113,7 @@
        (fn [latest-props state]
          (let [{:keys [value]} latest-props
                {:keys [oldPropValue stringValue]} state
-               ignorePropValue?  (= oldPropValue value)
+               ignorePropValue?  (or (= oldPropValue value) (= value (:value state)))
                stringValue       (cond-> (if ignorePropValue?
                                            stringValue
                                            (model->string value))
@@ -139,7 +138,6 @@
 
 (def ui-keyword-input (comp/factory (StringBufferedInput ::KeywordInput {:model->string #(str (some-> % name))
                                                                          :string->model #(some-> % keyword)})))
-
 (defn to-int [s]
   #?(:cljs
      (let [n (js/parseInt s)]
@@ -160,41 +158,48 @@
   #?(:clj  (Integer/parseInt x)
      :cljs (js/Number x)))
 
-#_(defn parse-local-time
-    "Parse the given time string and return a cljc.java-time.local-time."
-    [s]
-    (condp re-matches (some-> s (str/lower-case))
-      #"^\s*(\d{1,2})\s*(a|p|am|pm)?\s*$"
-      :>> (fn [[_ h ap]] (let [h (parse-int h)]
-                           (cljc.java-time.local-time/of
+(defn parse-local-time
+  "Parse the given time string and return a cljc.java-time.local-time."
+  [s]
+  (condp re-matches (some-> s (str/lower-case))
+    #"^\s*(\d{1,2})\s*(a|p|am|pm)?\s*$"
+    :>> (fn [[_ h ap]] (let [h (parse-int h)]
+                         (local-time/of
+                           (cond-> h
+                             (and (#{"a" "am"} ap) (= 12 h)) (- 12)
+                             (and (#{"p" "pm"} ap) (not= 12 h)) (+ 12))
+                           0)))
+    #"^\s*(\d{1,2}):(\d{1,2})\s*(a|p|am|pm)?\s*$"
+    :>> (fn [[_ h m ap]] (let [h (parse-int h)
+                               m (parse-int m)]
+                           (local-time/of
                              (cond-> h
                                (and (#{"a" "am"} ap) (= 12 h)) (- 12)
                                (and (#{"p" "pm"} ap) (not= 12 h)) (+ 12))
-                             0)))
-      #"^\s*(\d{1,2}):(\d{1,2})\s*(a|p|am|pm)?\s*$"
-      :>> (fn [[_ h m ap]] (let [h (parse-int h)
-                                 m (parse-int m)]
-                             (cljc.java-time.local-time/of
-                               (cond-> h
-                                 (and (#{"a" "am"} ap) (= 12 h)) (- 12)
-                                 (and (#{"p" "pm"} ap) (not= 12 h)) (+ 12))
-                               m)))
-      #".*" nil))
+                             m)))
+    #".*" nil))
+
+(comment
+  (str (parse-local-time "12p")))
+(def ui-time-input
+  (comp/factory
+    (StringBufferedInput ::LocalTimeInput {:model->string str
+                                           :string->model parse-local-time})))
 
 (defsc LandingPage [this {:keys [current]}]
   {:query         [:current]
    :ident         (fn [] [:component/id ::LandingPage])
-   :initial-state {:current 42}
+   :initial-state {:current nil}
    :route-segment ["landing-page"]}
   (dom/div :.ui.form
-    (dom/button :.ui.button {:onClick (fn [] (m/set-value! this :current 99))} "Set!")
+    (dom/button :.ui.button {:onClick (fn [] (m/set-value! this :current (local-time/of 16 45)))} "Set!")
     (div :.ui.field
       (dom/label "Try ME!")
-      (ui-int-input {:value    current
-                     :onBlur   (fn [k] (log/info "blur" k))
-                     :onChange (fn [k]
-                                 (log/info "set" k)
-                                 (m/set-value! this :current k))}))))
+      (ui-time-input {:value    current
+                      :onBlur   (fn [k] (log/info "blur" k))
+                      :onChange (fn [k]
+                                  (log/info "set" k)
+                                  (m/set-value! this :current k))}))))
 
 ;; This will just be a normal router...but there can be many of them.
 (defrouter MainRouter [this props]
@@ -211,7 +216,7 @@
                    {:router (comp/get-query MainRouter)}]
    :initial-state {:router        {}
                    :authenticator {}}}
-  (dom/div
+  (div
     (div :.ui.top.menu
       (div :.ui.item "Demo Application")
       ;; TODO: Show how we can check authority to hide UI

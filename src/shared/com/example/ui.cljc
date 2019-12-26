@@ -185,21 +185,37 @@
     (StringBufferedInput ::LocalTimeInput {:model->string str
                                            :string->model parse-local-time})))
 
-(defsc LandingPage [this {:keys [current]}]
-  {:query         [:current]
+(defsc LandingPage [this {:keys [k n tm]}]
+  {:query         [:k :n :tm]
    :ident         (fn [] [:component/id ::LandingPage])
-   :initial-state {:current nil}
+   :initial-state {:k  :x
+                   :n  42
+                   :tm (local-time/of 14 30)}
    :route-segment ["landing-page"]}
   (dom/div :.ui.form
     (dom/button :.ui.button {:onClick (fn [] (m/set-value! this :current (local-time/of 16 45)))} "Set!")
     (div :.ui.field
-      (dom/label "Try ME!")
-      (ui-time-input {:value    current
+      (dom/label "Keyword")
+      (ui-keyword-input {:value    k
+                         :onBlur   (fn [k] (log/info "blur" k))
+                         :onChange (fn [k]
+                                     (log/info "set" k)
+                                     (m/set-value! this :k k))}))
+    (div :.ui.field
+      (dom/label "Int")
+      (ui-int-input {:value    n
+                     :type     "number"
+                     :onBlur   (fn [v] (log/info "blur" v))
+                     :onChange (fn [v]
+                                 (m/set-value! this :n v))}))
+    (div :.ui.field
+      (dom/label "Time")
+      (ui-time-input {:value    tm
                       :type     "time"
-                      :onBlur   (fn [k] (log/info "blur" k))
-                      :onChange (fn [k]
-                                  (log/info "set" k)
-                                  (m/set-value! this :current k))}))))
+                      :onBlur   (fn [v] (log/info "blur" v))
+                      :onChange (fn [v]
+                                  (log/info "set" v)
+                                  (m/set-value! this :tm v))}))))
 
 ;; This will just be a normal router...but there can be many of them.
 (defrouter MainRouter [this props]

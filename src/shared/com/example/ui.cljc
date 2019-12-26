@@ -91,22 +91,20 @@
   (let [cls (fn [props]
               #?(:cljs
                  (cljs.core/this-as this
-                   (if-let [init-state (fn [this]
-                                         (let [{:keys [value]} (comp/props this)]
-                                           {:oldPropValue value
-                                            :on-change    (fn [evt]
-                                                            (let [{:keys [value]} (comp/props this)
-                                                                  nsv (evt/target-value evt)
-                                                                  nv  (string->model nsv)
-                                                                  {:keys [onChange]} (comp/props this)]
-                                                              (comp/set-state! this {:stringValue  nsv
-                                                                                     :oldPropValue value
-                                                                                     :value        nv})
-                                                              (when (and onChange (not= value nv))
-                                                                (onChange nv))))
-                                            :stringValue  (model->string value)}))]
-                     (set! (.-state this) (cljs.core/js-obj "fulcro$state" (init-state this (gobj/get props "fulcro$value"))))
-                     (set! (.-state this) (cljs.core/js-obj "fulcro$state" {})))
+                   (let [props         (gobj/get props "fulcro$value")
+                         {:keys [value]} props
+                         initial-state {:oldPropValue value
+                                        :on-change    (fn [evt]
+                                                        (let [{:keys [value onChange]} (comp/props this)
+                                                              nsv (evt/target-value evt)
+                                                              nv  (string->model nsv)]
+                                                          (comp/set-state! this {:stringValue  nsv
+                                                                                 :oldPropValue value
+                                                                                 :value        nv})
+                                                          (when (and onChange (not= value nv))
+                                                            (onChange nv))))
+                                        :stringValue  (model->string value)}]
+                     (set! (.-state this) (cljs.core/js-obj "fulcro$state" initial-state)))
                    nil)))]
     (comp/configure-component! cls kw
       {:getDerivedStateFromProps

@@ -10,6 +10,7 @@
         :cljs [[goog.object :as gobj]
                [com.fulcrologic.fulcro.dom :as dom :refer [div label input]]])
     [com.fulcrologic.fulcro.routing.dynamic-routing :refer [defrouter]]
+    [com.fulcrologic.fulcro.dom.inputs :refer [StringBufferedInput ui-int-input ui-keyword-input]]
     [com.fulcrologic.fulcro.mutations :as m]
     [com.fulcrologic.fulcro.dom.events :as evt]
     [com.fulcrologic.rad :as rad]
@@ -76,81 +77,6 @@
    ::report/parameters       {:ui/show-inactive? :boolean}
    ::report/route            "accounts"})
 
-
-(defn StringBufferedInput
-  "Create a new type of input that can be derived from a string. `kw` is a fully-qualified keyword name for the new
-  class, and model->string and string->model are functions that can do the conversions (and MUST tolerate nil as input).
-  `model->string` MUST return a string (empty if invalid), and `string->model` can return nil if invalid.
-
-  `string-filter` is an optional (fn [string?] string?) that can be used to rewrite incoming strings (i.e. filter
-  things).
-  "
-  [kw {:keys [model->string
-              string->model
-              string-filter]}]
-  (let [cls (fn [props]
-              #?(:cljs
-                 (cljs.core/this-as this
-                   (let [props         (gobj/get props "fulcro$value")
-                         {:keys [value]} props
-                         initial-state {:oldPropValue value
-                                        :on-change    (fn [evt]
-                                                        (let [{:keys [value onChange]} (comp/props this)
-                                                              nsv (evt/target-value evt)
-                                                              nv  (string->model nsv)]
-                                                          (comp/set-state! this {:stringValue  nsv
-                                                                                 :oldPropValue value
-                                                                                 :value        nv})
-                                                          (when (and onChange (not= value nv))
-                                                            (onChange nv))))
-                                        :stringValue  (model->string value)}]
-                     (set! (.-state this) (cljs.core/js-obj "fulcro$state" initial-state)))
-                   nil)))]
-    (comp/configure-component! cls kw
-      {:getDerivedStateFromProps
-       (fn [latest-props state]
-         (let [{:keys [value]} latest-props
-               {:keys [oldPropValue stringValue]} state
-               ignorePropValue?  (or (= oldPropValue value) (= value (:value state)))
-               stringValue       (cond-> (if ignorePropValue?
-                                           stringValue
-                                           (model->string value))
-                                   string-filter string-filter)
-               new-derived-state (merge state {:stringValue stringValue})]
-           #js {"fulcro$state" new-derived-state}))
-       :render
-       (fn [this]
-         #?(:cljs
-            (let [{:keys [value onBlur] :as props} (comp/props this)
-                  {:keys [stringValue on-change]} (comp/get-state this)]
-              (dom/create-element "input"
-                (clj->js
-                  (merge props
-                    (cond->
-                      {:value    stringValue
-                       :onChange on-change}
-                      onBlur (assoc :onBlur (fn [evt]
-                                              (onBlur (-> evt evt/target-value string->model)))))))))))})
-    cls))
-
-(def ui-keyword-input (comp/factory (StringBufferedInput ::KeywordInput {:model->string #(str (some-> % name))
-                                                                         :string->model #(some-> % keyword)})))
-(defn to-int [s]
-  #?(:cljs
-     (let [n (js/parseInt s)]
-       (when-not (js/isNaN n)
-         n))))
-
-(let [digits (into #{} (map str) (range 10))]
-  (defn just-digits [s]
-    (str/join
-      (filter digits (seq s)))))
-
-(def ui-int-input (comp/factory (StringBufferedInput ::IntInput {:model->string str
-                                                                 :string->model to-int
-                                                                 :string-filter just-digits})))
-
-
 (defn parse-int [x]
   #?(:clj  (Integer/parseInt x)
      :cljs (js/Number x)))
@@ -176,8 +102,6 @@
                              m)))
     #".*" nil))
 
-(comment
-  (str (parse-local-time "12p")))
 (def ui-time-input
   (comp/factory
     (StringBufferedInput ::LocalTimeInput {:model->string str
@@ -191,7 +115,7 @@
                    :tm (local-time/of 14 30)}
    :route-segment ["landing-page"]}
   (dom/div :.ui.form
-    (dom/button :.ui.button {:onClick (fn [] (m/set-value! this :current (local-time/of 16 45)))} "Set!")
+    (dom/button :.ui.button {:onClick (fn [] (m/set-value! this :tm (local-time/of 16 45)))} "Set!")
     (div :.ui.field
       (dom/label "Keyword")
       (ui-keyword-input {:value    k

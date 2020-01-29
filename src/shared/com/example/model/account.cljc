@@ -99,10 +99,10 @@
    :cljs
    (defmutation login [params]
      (ok-action [{:keys [app state]}]
-       (let [status (log/spy :info (some-> state deref ::auth/authorization :local ::auth/status))])
-       (if (= state :success)
-         (auth/logged-in! app :local)
-         (auth/failed! app :local)))
+       (let [status (log/spy :info (some-> state deref ::auth/authorization :local ::auth/status))]
+         (if (= status :success)
+           (auth/logged-in! app :local)
+           (auth/failed! app :local))))
      (error-action [{:keys [app]}]
        (log/error "Login failed.")
        (auth/failed! app :local))

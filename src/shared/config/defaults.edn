@@ -2,7 +2,8 @@
                                      :host "localhost"}
 
  :com.fulcrologic.rad.database-adapters.datomic/databases
-                                    {:main {:datomic/schema           :production
+                                    {:main {:datomic/storage-protocol :mem
+                                            :datomic/schema           :production
                                             :datomic/driver           :postgresql
                                             :datomic/database         "example"
                                             :datomic/prevent-changes? true
